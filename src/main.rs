@@ -1,6 +1,29 @@
 use axum::{
-    response::IntoResponse, routing::{get, post}, Router
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
+    Router,
 };
+use rust_bert::{pipelines::summarization::SummarizationModel, RustBertError};
+use tokio::task::JoinError;
+
+#[derive(Debug)]
+enum JoinBert {
+    Join(JoinError),
+    Bert(RustBertError),
+}
+
+impl From<JoinError> for JoinBert {
+    fn from(value: JoinError) -> Self {
+        JoinBert::Join(value)
+    }
+}
+
+impl From<RustBertError> for JoinBert {
+    fn from(value: RustBertError) -> Self {
+        JoinBert::Bert(value)
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -26,32 +49,63 @@ async fn main() {
     tracing::info!("goodbye!");
 }
 
-// basic handler that responds with a static string
+// TODO add some instructions to root as well as /help
 async fn root() -> &'static str {
     "Hello, World!"
 }
 
+// TODO maybe filter the incoming data. They could send JSON or anything. Feels kinda dangerous.
+// I don't think I needed JSON parsing or anything but maybe we do. Something to think about at least.
 async fn echo(body: String) -> impl IntoResponse {
-    tracing::info!("echo echo echo echo {}", body);
+    tracing::info!("body: {}", body);
+    match summarize_text(body).await {
+        Ok(summary) => {
+            tracing::info!("summarized text: {}", summary);
 
-    // so we return a response like this
-    body.into_response()
+            return summary.into_response();
+        }
+        Err(err) => match err {
+            JoinBert::Join(err) => {
+                // if it is tokio that's yelling, then we messed up (probably)
+                let err_message = format!("error while asyncing some awaits: {:?}", err);
+                tracing::error!(err_message);
+
+                return (StatusCode::INTERNAL_SERVER_ERROR, err_message).into_response();
+            }
+            JoinBert::Bert(err) => {
+                // if it is bert yelling then they probably sent some bad text (probably)
+                let err_message = format!("error summarizing text: {:?}", err);
+                tracing::error!(err_message);
+
+                return (StatusCode::BAD_REQUEST, err_message).into_response();
+            }
+        },
+    }
+}
+
+// that error handling didn't take a few hours or anything
+async fn summarize_text(text: String) -> Result<String, JoinBert> {
+    let sum_model_result =
+        tokio::task::spawn_blocking(|| SummarizationModel::new(Default::default())).await;
+
+    let sum_model = match sum_model_result {
+        Ok(Ok(model)) => model,
+        Ok(Err(err)) => return Err(JoinBert::Bert(err)),
+        Err(join_err) => return Err(JoinBert::Join(join_err)),
+    };
+
+    let output = sum_model.summarize(&[text]).map_err(|err| {
+        println!("error while running the model: {:?}", err);
+        JoinBert::Bert(err)
+    })?;
+
+    Ok(output[0].clone())
 }
 
 async fn shutdown_signal() {
-    let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install ctrl c signal")
-    };
-
+    let ctrl_c = tokio::signal::ctrl_c();
     #[cfg(unix)]
-    let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("failed to install terminate signal")
-            .recv()
-            .await;
-    };
+    let terminate = signal::unix::signal(signal::unix::SignalKind::terminate());
 
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
