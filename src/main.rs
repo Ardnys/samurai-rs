@@ -1,9 +1,6 @@
 use axum::{
-    routing::{get, post},
-    http::StatusCode,
-    Json, Router,
+    response::IntoResponse, routing::{get, post}, Router
 };
-use serde::{Deserialize, Serialize};
 
 #[tokio::main]
 async fn main() {
@@ -14,8 +11,8 @@ async fn main() {
     let app = Router::new()
         // `GET /` goes to `root`
         .route("/", get(root))
-        // `POST /users` goes to `create_user`
-        .route("/users", post(create_user));
+        // POST echo server
+        .route("/echo", post(echo));
 
     let addr = "127.0.0.1:3000";
     tracing::info!("listening on {}", addr);
@@ -34,21 +31,11 @@ async fn root() -> &'static str {
     "Hello, World!"
 }
 
-async fn create_user(
-    // this argument tells axum to parse the request body
-    // as JSON into a `CreateUser` type
-    Json(payload): Json<CreateUser>,
-) -> (StatusCode, Json<User>) {
-    // insert your application logic here
-    let user = User {
-        id: 1337,
-        username: payload.username,
-    };
-    tracing::info!("user created: id: {}, username: {}", user.id, user.username);
+async fn echo(body: String) -> impl IntoResponse {
+    tracing::info!("echo echo echo echo {}", body);
 
-    // this will be converted into a JSON response
-    // with a status code of `201 Created`
-    (StatusCode::CREATED, Json(user))
+    // so we return a response like this
+    body.into_response()
 }
 
 async fn shutdown_signal() {
@@ -73,17 +60,4 @@ async fn shutdown_signal() {
         _ = ctrl_c => {},
         _ = terminate => {},
     }
-}
-
-// the input to our `create_user` handler
-#[derive(Deserialize)]
-struct CreateUser {
-    username: String,
-}
-
-// the output to our `create_user` handler
-#[derive(Serialize)]
-struct User {
-    id: u64,
-    username: String,
 }
