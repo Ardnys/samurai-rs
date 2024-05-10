@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex, OnceLock};
+
 use axum::{
     http::StatusCode,
     response::IntoResponse,
@@ -32,12 +34,14 @@ async fn main() {
 
     // build our application with a route
     let app = Router::new()
-        // `GET /` goes to `root`
-        .route("/", get(root))
-        // POST echo server
-        .route("/echo", post(echo));
+        // GET help text
+        .route("/help", get(help))
+        // GET help text to root as well why not
+        // .route("/", get(help))
+        // POST summary server
+        .route("/summarize", post(summarize));
 
-    let addr = "127.0.0.1:3000";
+    let addr = "127.0.0.1:7878";
     tracing::info!("listening on {}", addr);
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
@@ -49,19 +53,16 @@ async fn main() {
     tracing::info!("goodbye!");
 }
 
-// TODO add some instructions to root as well as /help
-async fn root() -> &'static str {
-    "Hello, World!"
+// TODO add some instructions to /help and maybe root too
+async fn help() -> &'static str {
+    "make a POST request to /summarize endpoint with text body to get the summarized content."
 }
 
-// TODO maybe filter the incoming data. They could send JSON or anything. Feels kinda dangerous.
-// I don't think I needed JSON parsing or anything but maybe we do. Something to think about at least.
-async fn echo(body: String) -> impl IntoResponse {
+async fn summarize(body: String) -> impl IntoResponse {
     tracing::info!("body: {}", body);
     match summarize_text(body).await {
         Ok(summary) => {
-            tracing::info!("summarized text: {}", summary);
-
+            tracing::info!("summary: {}", summary);
             return summary.into_response();
         }
         Err(err) => match err {
@@ -83,16 +84,8 @@ async fn echo(body: String) -> impl IntoResponse {
     }
 }
 
-// that error handling didn't take a few hours or anything
 async fn summarize_text(text: String) -> Result<String, JoinBert> {
-    let sum_model_result =
-        tokio::task::spawn_blocking(|| SummarizationModel::new(Default::default())).await;
-
-    let sum_model = match sum_model_result {
-        Ok(Ok(model)) => model,
-        Ok(Err(err)) => return Err(JoinBert::Bert(err)),
-        Err(join_err) => return Err(JoinBert::Join(join_err)),
-    };
+    let sum_model = tokio::task::block_in_place(|| summary_model().lock().unwrap());
 
     let output = sum_model.summarize(&[text]).map_err(|err| {
         println!("error while running the model: {:?}", err);
@@ -100,6 +93,17 @@ async fn summarize_text(text: String) -> Result<String, JoinBert> {
     })?;
 
     Ok(output[0].clone())
+}
+
+// it's like caches the model so that it's only initialized once and then the model is returned after those calls
+fn summary_model() -> &'static Arc<Mutex<SummarizationModel>> {
+    static MODEL: OnceLock<Arc<Mutex<SummarizationModel>>> = OnceLock::new();
+
+    MODEL.get_or_init(|| {
+        Arc::new(Mutex::new(
+            SummarizationModel::new(Default::default()).unwrap(),
+        ))
+    })
 }
 
 async fn shutdown_signal() {
