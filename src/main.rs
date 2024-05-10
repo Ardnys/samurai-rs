@@ -2,11 +2,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::{
     http::StatusCode,
-    response::IntoResponse,
+    response::{Html, IntoResponse},
     routing::{get, post},
     Router,
 };
-use rust_bert::{pipelines::summarization::SummarizationModel, RustBertError};
+use rust_bert::{
+    pipelines::summarization::{SummarizationConfig, SummarizationModel},
+    RustBertError,
+};
 use tokio::task::JoinError;
 
 #[derive(Debug)]
@@ -37,7 +40,7 @@ async fn main() {
         // GET help text
         .route("/help", get(help))
         // GET help text to root as well why not
-        // .route("/", get(help))
+        .route("/", get(help))
         // POST summary server
         .route("/summarize", post(summarize));
 
@@ -53,9 +56,11 @@ async fn main() {
     tracing::info!("goodbye!");
 }
 
-// TODO add some instructions to /help and maybe root too
-async fn help() -> &'static str {
-    "make a POST request to /summarize endpoint with text body to get the summarized content."
+async fn help() -> (StatusCode, Html<String>) {
+    let help_text =
+        "make a POST request to /summarize endpoint with text body to get the summarized content.";
+    let response_body = format!("<html><body><p>{}</p></body></html>", help_text);
+    (StatusCode::OK, Html(response_body))
 }
 
 async fn summarize(body: String) -> impl IntoResponse {
@@ -99,11 +104,16 @@ async fn summarize_text(text: String) -> Result<String, JoinBert> {
 fn summary_model() -> &'static Arc<Mutex<SummarizationModel>> {
     static MODEL: OnceLock<Arc<Mutex<SummarizationModel>>> = OnceLock::new();
 
-    MODEL.get_or_init(|| {
-        Arc::new(Mutex::new(
-            SummarizationModel::new(Default::default()).unwrap(),
-        ))
-    })
+    // config can be found below
+    // https://docs.rs/rust-bert/latest/rust_bert/pipelines/summarization/struct.SummarizationConfig.html
+    let mut config = SummarizationConfig::default();
+    config.min_length = 10;
+    config.max_length = Some(300);
+    config.num_beams = 20;
+    config.temperature = 2.0;
+    config.repetition_penalty = 1.5;
+
+    MODEL.get_or_init(|| Arc::new(Mutex::new(SummarizationModel::new(config).unwrap())))
 }
 
 async fn shutdown_signal() {
