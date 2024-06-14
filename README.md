@@ -1,15 +1,17 @@
-# Samurai
+<h1 align="center"> Samurai </h1>
 <p align="center">
 <a href="https://github.com/Ardnys/repo_name">
-<img  src="images/logo.png" alt="Logo" width="80" height="80">
+<img  src="https://github.com/Ardnys/samurai-rs/blob/master/images/samurai_icon.png" alt="Logo" width="200" height="200">
 </a>
 </p>
 
+## Overview
 A samurai is a server that summarizes given text. This is the first samurai implementation that uses locally deployed NLP model.
-Originally a part of [CFS]() but it can be used for any summarization task.
+Originally a part of [CFS](https://github.com/Ardnys/cfs-web/) but it can be used for any summarization task.\
+However, I could not make it asynchronous because the NLP model is not thread safe and I don't know how to work around that. Contributions or discussions regarding this is greatly appreaciated. Please open an issue and we can discuss it.
 
 ## What makes a Samurai?
-Making a custom samurai is simple.  But it must conform to following attributes to work with [CFS]():
+Making a custom samurai is simple.  But it must conform to following attributes to work with [CFS](https://github.com/Ardnys/cfs-web/):
 - It must listen to port 7878 for requests.
 - It must listen `/summarize` endpoint for POST requests that accept plain text and return the summarized text as plain text.
 - It's strongly recommended to have a `/shutdown` GET endpoint to for graceful shutdown. 
